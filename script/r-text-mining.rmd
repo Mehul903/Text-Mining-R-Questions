@@ -1,0 +1,223 @@
+Finding Similar Questions from R-StackOverflow Questions
+========================================================
+
+
+
+```{r}
+
+
+## Loading required packages:
+
+packages <- c("tm", "ggplot2", "wordcloud",  "stringr", "slam")
+lapply(packages, FUN = require, character.only = T)
+
+
+```
+
+
+
+
+```{r fig.width=7, fig.height=6}
+
+
+
+##Loading the R-question data and considering only the question titles (col 5) as interest of analysis:
+## Considering only a small set of questions (10k) due to memory issues. There are total of ~190k questions.
+r_que <- read.csv("C:\\Users\\patel.mehu\\Downloads\\rquestions\\Questions.csv", nrow = 25000)
+que_titles <- r_que[,5] %>% 
+              as.character() %>%
+              tolower()
+head(que_titles)
+
+
+```
+
+
+```{r}
+
+##Converting the data in a Corpus vector to analyse further using tm-package:
+docs <- Corpus(VectorSource(que_titles))
+for (doc in docs[1:5]){
+    print (doc)
+}
+
+
+```
+
+
+```{r}
+
+## Remove stopwords, some other less-important words by creating customized dictionary, and punctuation:
+docs_wo_sw <- tm_map(x = docs, FUN = removeWords, stopwords("english"))
+docs_wo_sw <- tm_map(x = docs_wo_sw, FUN = removeWords, c("What", "How", "Is", "Can", "can","using", "Does"))
+docs_wo_sw <- tm_map(x = docs_wo_sw, FUN = removePunctuation)
+# docs_wo_sw <- tm_map(x = docs_wo_sw, FUN = stemDocument, language = 'english')
+
+##Removing whitespaces:
+docs_wo_sw <- tm_map(docs_wo_sw, stripWhitespace)
+
+docs_wo_sw[[1]]$content
+
+
+```
+
+
+```{r}
+
+#Creating a document term matrix w/o using TF-IDF:
+dtm <- DocumentTermMatrix(docs_wo_sw)
+
+#Organize the data/terms by frequency:
+dtm_freq <- colSums(as.matrix(dtm))
+length(dtm_freq)
+
+##Creating a dataframe for this o/p (just an alternative view):
+dtm_freq_df <- data.frame(Keyword = names(dtm_freq), Freq = dtm_freq)
+
+##Ordering based on frequency:
+dtm_freq_df <- dtm_freq_df[with(dtm_freq_df, order(-Freq)), ]
+
+##Plotting data:
+p1 <- ggplot(data = head(dtm_freq_df, 20), aes(x = Keyword, y =  Freq, fill = Freq)) +
+      geom_bar(stat = "identity") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 15))
+p1
+
+
+```
+
+
+```{r}
+
+
+##Creating a wordcloud:
+set.seed(10)
+wordcloud(names(dtm_freq), freq = dtm_freq, max.words = 150, colors = brewer.pal(5, "Dark2"))
+
+```
+
+
+```{r}
+
+#Creating a document term matrix using TF-IDF:
+dtm <- DocumentTermMatrix(docs_wo_sw, control = list(weighting = weightTfIdf))
+dtm_dense <- removeSparseTerms(dtm, 0.9999)
+dim(dtm_dense)
+
+
+```
+
+
+```{r}
+
+## Checking a small subset of DTM:
+inspect(dtm_dense[1:15,1:10])
+colnames(dtm_dense)[0:50]
+
+
+```
+
+
+```{r}
+
+## Get similarity among documents (i.e. R-questions) using cosine-similarity as a metric:
+tdm <- t(dtm_dense)
+tdm_cos_sim <- crossprod_simple_triplet_matrix(tdm)/(sqrt(col_sums(tdm^2) %*% t(col_sums(tdm^2))))
+dim(tdm_cos_sim)
+
+
+```
+
+
+```{r}
+
+## Let's find the similar questions based on cosine-similarity:
+sort(tdm_cos_sim[10,], decreasing = T)[1:10]
+
+docs[[10]]$content
+que_titles[10]
+
+docs[[343]]$content
+docs[[6362]]$content
+docs[[5532]]$content
+
+
+```
+
+
+```{r}
+
+sort(tdm_cos_sim[4030,], decreasing = T)[1:10]
+
+docs[[4030]]$content
+que_titles[4030]
+
+docs[[163]]$content
+
+
+```
+
+
+```{r}
+
+sort(tdm_cos_sim[101,], decreasing = T)[1:10]
+
+docs[[101]]$content
+docs[[5294]]$content
+docs[[7498]]$content
+
+
+```
+
+
+```{r}
+
+new_que <- 'how to sort dataframe in r'
+
+## Find relevant questions to new question:
+get_similar_questions <- function(new_que = new_que, trained_dtm = dtm_dense, available_ques = que_titles){
+
+    doc_new <- Corpus(VectorSource(new_que))
+
+    docs_new <- tm_map(x = doc_new, FUN = removeWords, c("What", "How", "Is", "Can", "can","using", "Does", stopwords("english")))
+    docs_new <- tm_map(x = docs_new, FUN = removePunctuation)
+    docs_new <- tm_map(x = docs_new, FUN = stripWhitespace)
+
+    dtm_new <- DocumentTermMatrix(docs_new)
+    terms <- as.vector(c(colnames(dtm_new)))
+
+    temp_data <- as.data.frame(as.matrix(trained_dtm[, intersect(colnames(trained_dtm), terms)]))
+#     temp_data <- temp_data[order(temp_data[terms[2]], temp_data[terms[1]], decreasing = T),]
+    temp_data <- temp_data[do.call(order, c(temp_data[, match(terms, names(temp_data))], list(decreasing = T))),]
+    inds <- as.numeric(rownames(temp_data))[1:10]
+
+    print ('Most relevant questions are:')
+    for (i in inds){
+        print (available_ques[i])
+    }
+    
+   }
+
+
+```
+
+
+```{r}
+
+get_similar_questions(new_que = 'how to filter dataframe in r')
+
+```
+
+
+```{r}
+
+get_similar_questions(new_que = 'nested for loop in r')
+
+```
+
+
+```{r}
+
+get_similar_questions(new_que = 'how to plot barplot in ggplot r')
+
+```
